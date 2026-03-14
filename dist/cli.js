@@ -125,6 +125,20 @@ finally {
 } }
 function cachedUsageFor(name) { const index = loadIndex(); const meta = index.profiles[name]; if (!meta)
     fail(`Unknown team: ${name}`); return { usage: meta.lastKnownUsage || null, refreshedAt: meta.lastVerifiedAt || null }; }
+function safeUsageFor(name, refresh) {
+    const cached = cachedUsageFor(name);
+    if (!refresh)
+        return { ...cached, usedCacheFallback: false, refreshError: null };
+    try {
+        const fresh = refreshUsageFor(name);
+        return { ...fresh, usedCacheFallback: false, refreshError: null };
+    }
+    catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        const fallbackUsage = cached.usage ? { ...cached.usage, error: `refresh failed: ${message}` } : { fiveHourLeft: null, fiveHourReset: null, weekLeft: null, weekReset: null, raw: '', error: `refresh failed: ${message}` };
+        return { usage: fallbackUsage, refreshedAt: cached.refreshedAt, usedCacheFallback: true, refreshError: message };
+    }
+}
 function formatUsageLine(label, pct, resetText) { const paint = usageColor(pct ?? null); const pctText = pct == null ? '?' : `${pct}%`; return `${c(label.padEnd(4), 'cyan')} ${paint(pctText.padStart(4))} ${c('left', 'dim')} ${c('·', 'gray')} ${c('resets', 'dim')} ${resetText ?? '?'}`; }
 function orderValue(row, order) { const usage = row.data.usage || {}; const meta = row.meta || {}; switch (order) {
     case '5h': return usage.fiveHourLeft ?? -1;
@@ -159,32 +173,37 @@ else {
 } }
 function cmdCurrent(flags) { const index = loadIndex(); const active = index.activeVaultProfile; printRefreshHint(flags, 'openclaw-team-vault current -r'); if (active && index.profiles[active]) {
     const meta = index.profiles[active];
-    const data = flags.refresh ? refreshUsageFor(active) : cachedUsageFor(active);
+    const data = safeUsageFor(active, flags.refresh);
     const usage = data.usage || { fiveHourLeft: null, fiveHourReset: null, weekLeft: null, weekReset: null };
     console.log(`${bullet(true)} ${c(active, 'bold', 'cyan')} ${c(`(${meta.label || active})`, 'dim')}`);
     console.log(`  ${c('account', 'dim')}: ${shortId(meta.accountId)}`);
     printExpiry(meta);
-    printRefreshInfo(data.refreshedAt, flags.refresh);
+    printRefreshInfo(data.refreshedAt, flags.refresh && !data.usedCacheFallback);
     console.log(`  ${formatUsageLine('5h', usage.fiveHourLeft, usage.fiveHourReset)}`);
     console.log(`  ${formatUsageLine('week', usage.weekLeft, usage.weekReset)}`);
+    if (data.usedCacheFallback)
+        console.log(`  ${c('fallback', 'yellow', 'bold')}: using cached usage because refresh failed`);
 }
 else
     console.log(c('(active team not mapped in vault)', 'yellow')); }
 function cmdLs(flags) { const index = loadIndex(); const names = Object.keys(index.profiles || {}); if (!names.length)
     return console.log('No teams saved. Use: openclaw-team-vault add <name> [--days N]'); if (!flags.less)
-    printRefreshHint(flags, 'openclaw-team-vault ls -r'); const results = names.map((name) => ({ name, data: flags.refresh ? refreshUsageFor(name) : cachedUsageFor(name), isActive: index.activeVaultProfile === name, meta: loadIndex().profiles[name] || {} })); const sorted = sortRows(results, flags.order); if (!flags.less)
-    sorted.forEach((row, i) => printTeamUsage(row.name, row.data.usage, row.isActive, row.data.refreshedAt, flags.refresh, i > 0)); const total5h = sumDefined(results.map((r) => r.data.usage?.fiveHourLeft)); const totalWeek = sumDefined(results.map((r) => r.data.usage?.weekLeft)); if (flags.less) {
-    console.log(`usage source: ${flags.refresh ? 'refreshed' : 'cached'} · order: ${flags.order}`);
+    printRefreshHint(flags, 'openclaw-team-vault ls -r'); const results = names.map((name) => ({ name, data: safeUsageFor(name, flags.refresh), isActive: index.activeVaultProfile === name, meta: loadIndex().profiles[name] || {} })); const sorted = sortRows(results, flags.order); if (!flags.less)
+    sorted.forEach((row, i) => printTeamUsage(row.name, row.data.usage, row.isActive, row.data.refreshedAt, flags.refresh && !row.data.usedCacheFallback, i > 0)); const total5h = sumDefined(results.map((r) => r.data.usage?.fiveHourLeft)); const totalWeek = sumDefined(results.map((r) => r.data.usage?.weekLeft)); const fallbackCount = results.filter((r) => r.data.usedCacheFallback).length; if (flags.less) {
+    console.log(`usage source: ${flags.refresh ? (fallbackCount ? `mixed (${fallbackCount} cached fallback)` : 'refreshed') : 'cached'} · order: ${flags.order}`);
     for (const row of sorted) {
         const u = row.data.usage || {};
-        console.log(`${row.isActive ? '*' : '-'} ${row.name}  5h:${u.fiveHourLeft ?? '?'}%  week:${u.weekLeft ?? '?'}%`);
+        const suffix = row.data.usedCacheFallback ? '  [cached fallback]' : '';
+        console.log(`${row.isActive ? '*' : '-'} ${row.name}  5h:${u.fiveHourLeft ?? '?'}%  week:${u.weekLeft ?? '?'}%${suffix}`);
     }
     console.log(`total 5h:${total5h ?? '?'}%  week:${totalWeek ?? '?'}%`);
     return console.log('usage: openclaw-team-vault use <name>');
-} console.log(c('════════════════════════════════════════', 'gray')); console.log(`${c('Σ total', 'bold', 'cyan')} ${c('cached usage sum', 'dim')}`); console.log(`  ${c('5h', 'cyan')}    ${total5h == null ? '?' : c(`${total5h}%`, 'bold')}`); console.log(`  ${c('week', 'cyan')}  ${totalWeek == null ? '?' : c(`${totalWeek}%`, 'bold')}`); }
+} console.log(c('════════════════════════════════════════', 'gray')); console.log(`${c('Σ total', 'bold', 'cyan')} ${c('cached usage sum', 'dim')}`); console.log(`  ${c('5h', 'cyan')}    ${total5h == null ? '?' : c(`${total5h}%`, 'bold')}`); console.log(`  ${c('week', 'cyan')}  ${totalWeek == null ? '?' : c(`${totalWeek}%`, 'bold')}`); if (fallbackCount)
+    console.log(`  ${c('note', 'yellow', 'bold')}  ${fallbackCount} team(s) used cached fallback because refresh failed`); }
 function cmdShow(name, flags) { if (!name)
     fail('Usage: openclaw-team-vault show <name> [--refresh]'); const index = loadIndex(); if (!index.profiles[name])
-    fail(`Unknown team: ${name}`); printRefreshHint(flags, `openclaw-team-vault show ${name} -r`); const data = flags.refresh ? refreshUsageFor(name) : cachedUsageFor(name); printTeamUsage(name, data.usage, index.activeVaultProfile === name, data.refreshedAt, flags.refresh); }
+    fail(`Unknown team: ${name}`); printRefreshHint(flags, `openclaw-team-vault show ${name} -r`); const data = safeUsageFor(name, flags.refresh); printTeamUsage(name, data.usage, index.activeVaultProfile === name, data.refreshedAt, flags.refresh && !data.usedCacheFallback); if (data.usedCacheFallback)
+    console.log(`  ${c('fallback', 'yellow', 'bold')}: using cached usage because refresh failed`); }
 function cmdAdd(name, flags) { if (!name)
     fail('Usage: openclaw-team-vault add <name> [--days N] [--keep]'); const index = loadIndex(); if (index.profiles[name])
     fail(`Team already exists: ${name}`); const previousActive = index.activeVaultProfile; console.log(`Starting OpenAI Codex login for new team: ${name}`); if (flags.days)
