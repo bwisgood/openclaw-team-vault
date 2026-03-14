@@ -1,6 +1,6 @@
 {
   "name": "openclaw-team-vault",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Manage multiple OpenAI Codex team OAuth profiles for OpenClaw",
   "type": "module",
   "repository": {
