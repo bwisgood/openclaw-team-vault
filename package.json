@@ -1,0 +1,46 @@
+{
+  "name": "openclaw-team-vault",
+  "version": "0.1.0",
+  "description": "Manage multiple OpenAI Codex team OAuth profiles for OpenClaw",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bwisgood/openclaw-team-vault.git"
+  },
+  "homepage": "https://github.com/bwisgood/openclaw-team-vault#readme",
+  "bugs": {
+    "url": "https://github.com/bwisgood/openclaw-team-vault/issues"
+  },
+  "bin": {
+    "openclaw-team-vault": "dist/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "README.zh-CN.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "dev": "tsx src/cli.ts",
+    "prepare": "npm run build"
+  },
+  "keywords": [
+    "openclaw",
+    "openai",
+    "codex",
+    "team",
+    "oauth",
+    "cli"
+  ],
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.14",
+    "tsx": "^4.19.3",
+    "typescript": "^5.8.2"
+  }
+}
